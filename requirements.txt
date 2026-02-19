@@ -1,4 +1,4 @@
-python-telegram-bot==20.7
-solana==0.36.11  # ou la dernière stable
-solders==0.27.1  # compatible avec solana récent
+python-telegram-bot==21.5  # ou la dernière stable (21.x accepte httpx récent)
+solana==0.36.11
+solders==0.27.1
 requests==2.31.0
