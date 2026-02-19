@@ -1,68 +1,105 @@
 import os
 import logging
 import asyncio
+import requests
 from telegram import Update
 from telegram.ext import ApplicationBuilder, CommandHandler, MessageHandler, filters, ContextTypes
 
-# --- 1. CONFIGURATION DU LOGGING ---
+# --- 1. LOGGING CONFIGURATION ---
 logging.basicConfig(
     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
     level=logging.INFO
 )
 logger = logging.getLogger(__name__)
 
-# --- 2. TES FONCTIONS (DOIVENT ÊTRE ASYNC) ---
+# --- 2. BOT FUNCTIONS (ASYNC) ---
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Répond quand l'utilisateur tape /start"""
+    """Answers when the user types /start"""
     await update.message.reply_text(
-        "🚀 Bot Solana Scan activé !\n"
-        "Envoie-moi l'adresse d'un token pour l'analyser."
+        "🚀 *Solana Scanner Bot Active!*\n\n"
+        "Send me a token mint address (CA) to analyze its market data.",
+        parse_mode='Markdown'
     )
 
 async def scan_token(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Répond à l'adresse du token envoyée"""
-    user_input = update.message.text
-    await update.message.reply_text(f"🔍 Analyse en cours pour : `{user_input}`...", parse_mode='Markdown')
+    """Fetches real-time data from DexScreener API"""
+    token_address = update.message.text.strip()
     
-    # Simule une attente de scan
-    await asyncio.sleep(1) 
-    await update.message.reply_text("✅ Scan terminé. (Logique Solana à insérer ici)")
+    # Send a waiting message
+    status_message = await update.message.reply_text(
+        f"🔎 *Scanning:* `{token_address}`...", 
+        parse_mode='Markdown'
+    )
 
-# --- 3. LA LOGIQUE DE LANCEMENT (CORRIGÉE POUR PYTHON 3.14) ---
+    try:
+        # Fetching data from DexScreener
+        url = f"https://api.dexscreener.com/latest/dex/tokens/{token_address}"
+        response = requests.get(url, timeout=10)
+        data = response.json()
+
+        if not data.get('pairs'):
+            await status_message.edit_text("❌ *Token not found.* Please check the address.")
+            return
+
+        # Extract the main pair (highest liquidity)
+        pair = data['pairs'][0]
+        base = pair.get('baseToken', {})
+        
+        name = base.get('name', 'Unknown')
+        symbol = base.get('symbol', '???')
+        price = pair.get('priceUsd', '0.00')
+        mcap = pair.get('fdv', 0)
+        liquidity = pair.get('liquidity', {}).get('usd', 0)
+        change_24h = pair.get('priceChange', {}).get('h24', 0)
+
+        # Build English report
+        report = (
+            f"📊 *Token Report: {name} ({symbol})*\n\n"
+            f"💰 *Price:* ${price}\n"
+            f"📈 *24h Change:* {change_24h}%\n"
+            f"💎 *Market Cap:* ${mcap:,.0f}\n"
+            f"💧 *Liquidity:* ${liquidity:,.0f}\n\n"
+            f"🔗 [View on DexScreener]({pair.get('url')})"
+        )
+
+        await status_message.edit_text(report, parse_mode='Markdown', disable_web_page_preview=False)
+
+    except Exception as e:
+        logger.error(f"Scan error: {e}")
+        await status_message.edit_text("⚠️ *Error:* Failed to fetch data from the blockchain.")
+
+# --- 3. MAIN RUNNER (ASYNC) ---
 
 async def run_bot():
-    """Fonction principale asynchrone"""
+    """Main async function to handle Python 3.14 event loop"""
     token = os.environ.get('BOT_TOKEN')
     
     if not token:
-        logger.error("❌ ERREUR : Le BOT_TOKEN est introuvable dans les variables d'environnement.")
+        logger.error("❌ ERROR: BOT_TOKEN not found in environment variables.")
         return
 
-    # Construction de l'application
     application = ApplicationBuilder().token(token).build()
 
-    # Ajout des handlers
+    # Add handlers
     application.add_handler(CommandHandler("start", start))
     application.add_handler(MessageHandler(filters.TEXT & (~filters.COMMAND), scan_token))
 
-    logger.info("=== LE BOT DÉMARRE (MODE ASYNC) ===")
+    logger.info("=== BOT STARTED SUCCESSFULLY ===")
 
-    # Initialisation et démarrage manuel pour éviter le bug de boucle sur Render/Python 3.14
     async with application:
         await application.initialize()
         await application.start()
         await application.updater.start_polling(drop_pending_updates=True)
         
-        # Cette boucle maintient le bot en vie indéfiniment
+        # Keep the bot running
         while True:
             await asyncio.sleep(3600)
 
 if __name__ == '__main__':
     try:
-        # On lance la boucle asyncio proprement
         asyncio.run(run_bot())
     except (KeyboardInterrupt, SystemExit):
-        logger.info("Bot arrêté proprement.")
+        logger.info("Bot stopped.")
     except Exception as e:
-        logger.critical(f"Erreur fatale lors du lancement : {e}", exc_info=True)
+        logger.critical(f"Fatal error: {e}", exc_info=True)
