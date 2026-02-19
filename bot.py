@@ -4,7 +4,7 @@ import asyncio
 from telegram import Update
 from telegram.ext import ApplicationBuilder, CommandHandler, MessageHandler, filters, ContextTypes
 
-# --- 1. CONFIGURATION DU LOGGING (Pour voir ce qui se passe) ---
+# --- 1. CONFIGURATION DU LOGGING ---
 logging.basicConfig(
     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
     level=logging.INFO
@@ -21,39 +21,48 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     )
 
 async def scan_token(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Répond à n'importe quel message texte (L'analyse du token)"""
+    """Répond à l'adresse du token envoyée"""
     user_input = update.message.text
-    
-    # Message d'attente pour l'utilisateur
     await update.message.reply_text(f"🔍 Analyse en cours pour : `{user_input}`...", parse_mode='Markdown')
     
-    # --- ICI TU AJOUTERAS TA LOGIQUE SOLANA (RPC, API, etc.) ---
-    # Exemple : result = ta_fonction_de_scan(user_input)
+    # Simule une attente de scan
+    await asyncio.sleep(1) 
+    await update.message.reply_text("✅ Scan terminé. (Logique Solana à insérer ici)")
+
+# --- 3. LA LOGIQUE DE LANCEMENT (CORRIGÉE POUR PYTHON 3.14) ---
+
+async def run_bot():
+    """Fonction principale asynchrone"""
+    token = os.environ.get('BOT_TOKEN')
     
-    await update.message.reply_text("✅ Analyse terminée (Simulation).")
-
-# --- 3. LE COEUR DU BOT (MAIN) ---
-
-def main():
-    # Récupération du Token (Variable d'environnement ou direct pour test)
-    # Remplacer os.environ.get('BOT_TOKEN') par "TON_TOKEN" si tu testes en local sans variable d'env.
-    token = os.environ.get('BOT_TOKEN') 
-
     if not token:
-        logger.error("❌ ERREUR : Le BOT_TOKEN est introuvable. Vérifie tes variables d'environnement.")
+        logger.error("❌ ERREUR : Le BOT_TOKEN est introuvable dans les variables d'environnement.")
         return
 
-    # Création de l'application (Version 20+ de python-telegram-bot)
+    # Construction de l'application
     application = ApplicationBuilder().token(token).build()
 
-    # Ajout des commandes et des écouteurs de messages
+    # Ajout des handlers
     application.add_handler(CommandHandler("start", start))
     application.add_handler(MessageHandler(filters.TEXT & (~filters.COMMAND), scan_token))
 
-    logger.info("=== LE BOT DÉMARRE ===")
-    
-    # Lancement du bot (Gère automatiquement la boucle asyncio)
-    application.run_polling(drop_pending_updates=True)
+    logger.info("=== LE BOT DÉMARRE (MODE ASYNC) ===")
+
+    # Initialisation et démarrage manuel pour éviter le bug de boucle sur Render/Python 3.14
+    async with application:
+        await application.initialize()
+        await application.start()
+        await application.updater.start_polling(drop_pending_updates=True)
+        
+        # Cette boucle maintient le bot en vie indéfiniment
+        while True:
+            await asyncio.sleep(3600)
 
 if __name__ == '__main__':
-    main()
+    try:
+        # On lance la boucle asyncio proprement
+        asyncio.run(run_bot())
+    except (KeyboardInterrupt, SystemExit):
+        logger.info("Bot arrêté proprement.")
+    except Exception as e:
+        logger.critical(f"Erreur fatale lors du lancement : {e}", exc_info=True)
