@@ -12,8 +12,12 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
+# Base de données temporaire pour le classement (Reset au redémarrage du bot)
+scan_counts = {}
+
 # --- 2. QUICK SAFETY CHECK ---
 def check_honeypot(token_address):
+    """Vérification rapide via RugCheck API"""
     try:
         rc_url = f"https://api.rugcheck.xyz/v1/tokens/{token_address}/report/summary"
         response = requests.get(rc_url, timeout=5)
@@ -30,14 +34,41 @@ def check_honeypot(token_address):
 # --- 3. BOT FUNCTIONS ---
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Message d'accueil et instructions"""
     await update.message.reply_text(
         "🛡️ *Solana Gold Guard - Sentinel Active*\n\n"
-        "Send me a Token Mint Address (CA) to receive a professional audit report.",
+        "Send me a Token Mint Address (CA) to receive a professional audit report.\n\n"
+        "🏆 Use /leaderboard to see trending tokens!",
         parse_mode='Markdown'
     )
 
+async def leaderboard(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Affiche le classement des tokens les plus scannés"""
+    if not scan_counts:
+        await update.message.reply_text("📉 No tokens have been scanned yet. Be the first!")
+        return
+
+    # Tri des tokens par nombre de scans (Top 10)
+    sorted_scans = sorted(scan_counts.items(), key=lambda item: item[1], reverse=True)[:10]
+    
+    report = "🏆 *Trending Tokens (Most Scanned)*\n\n"
+    for i, (addr, count) in enumerate(sorted_scans, 1):
+        report += f"{i}. `{addr[:6]}...{addr[-4:]}` — *{count} scans*\n"
+    
+    report += "\n🚀 *Want to climb the ranks? Share the bot and scan your CA!*"
+    
+    await update.message.reply_text(report, parse_mode='Markdown')
+
 async def scan_token(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Analyse le token, incrémente le compteur et répond avec le rapport"""
     token_address = update.message.text.strip()
+    
+    # Filtre pour ignorer les textes trop courts (qui ne sont pas des CA)
+    if len(token_address) < 30:
+        return
+
+    # Mise à jour du classement
+    scan_counts[token_address] = scan_counts.get(token_address, 0) + 1
     
     status_message = await update.message.reply_text(
         f"📡 *Analyzing* `{token_address[:6]}...{token_address[-4:]}`...", 
@@ -45,7 +76,7 @@ async def scan_token(update: Update, context: ContextTypes.DEFAULT_TYPE):
     )
 
     try:
-        # Market Data
+        # Récupération des données Marché via DexScreener
         dex_url = f"https://api.dexscreener.com/latest/dex/tokens/{token_address}"
         dex_data = requests.get(dex_url, timeout=10).json()
 
@@ -69,15 +100,15 @@ async def scan_token(update: Update, context: ContextTypes.DEFAULT_TYPE):
             f"🔗 *Contract:* `{token_address}`"
         )
 
-        # --- LE BOUTON VERS TON SITE EST ICI ---
+        # Boutons d'action dynamiques
         keyboard = [
             [
                 InlineKeyboardButton("🚀 Buy on Jupiter", url=f"https://jup.ag/swap/SOL-{token_address}"),
                 InlineKeyboardButton("🦅 DexScreener", url=pair.get('url'))
             ],
             [
-                # C'est ce lien qui envoie vers solanagoldguard.com
-                InlineKeyboardButton("🛡️ FULL SECURITY CHECK (SolanaGoldGuard)", url=f"https://solanagoldguard.com/?address={token_address}")
+                # Lien corrigé vers ta page Terminal avec passage de l'adresse en paramètre
+                InlineKeyboardButton("🛡️ FULL SECURITY CHECK (Web)", url=f"https://solanagoldguard.com/terminal?address={token_address}")
             ]
         ]
         reply_markup = InlineKeyboardMarkup(keyboard)
@@ -86,26 +117,33 @@ async def scan_token(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     except Exception as e:
         logger.error(f"Error: {e}")
-        await status_message.edit_text("⚠️ *Analysis failed.* Please try again.")
+        await status_message.edit_text("⚠️ *Analysis failed.* The API might be busy, please try again.")
 
 # --- 4. RUNNER ---
 async def run_bot():
     token = os.environ.get('BOT_TOKEN')
-    if not token: return
+    if not token:
+        logger.error("BOT_TOKEN not found!")
+        return
     
     app = ApplicationBuilder().token(token).build()
+    
+    # Ajout des commandes
     app.add_handler(CommandHandler("start", start))
+    app.add_handler(CommandHandler("leaderboard", leaderboard))
     app.add_handler(MessageHandler(filters.TEXT & (~filters.COMMAND), scan_token))
 
-    logger.info("=== BOT STARTED ===")
+    logger.info("=== SOLANA GOLD GUARD BOT STARTED ===")
     async with app:
         await app.initialize()
         await app.start()
         await app.updater.start_polling(drop_pending_updates=True)
-        while True: await asyncio.sleep(3600)
+        # Maintien du bot en vie
+        while True:
+            await asyncio.sleep(3600)
 
 if __name__ == '__main__':
     try:
         asyncio.run(run_bot())
-    except:
-        pass
+    except (KeyboardInterrupt, SystemExit):
+        logger.info("Bot stopped.")
