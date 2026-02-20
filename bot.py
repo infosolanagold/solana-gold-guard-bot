@@ -88,8 +88,8 @@ async def scan_token(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 InlineKeyboardButton("🦅 DexScreener", url=pair.get('url'))
             ],
             [
-                # URL MISE À JOUR ICI
-                InlineKeyboardButton("🛡️ DEEP AUDIT & PROMO ENGINE", url=f"https://www.solanagoldguard.com/anti-scam-promo-engine?address={token_address}")
+                # URL CORRIGÉE POUR ÉVITER LE 404
+                InlineKeyboardButton("🛡️ DEEP AUDIT (Gold Guard Web)", url=f"https://www.solanagoldguard.com/anti-scam-promo-engine?address={token_address}")
             ]
         ]
         reply_markup = InlineKeyboardMarkup(keyboard)
